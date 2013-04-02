@@ -26,6 +26,7 @@ public class Configuration {
 	private File filePath = new File("./");
 
 	private Set<String> hosts = new HashSet<String>();
+	private Set<String> writeHosts = new HashSet<String>();
 	
 	private int port = DEFAULT_RIAK_PB_PORT;
 	private int httpPort = DEFAULT_RIAK_HTTP_PORT;
@@ -74,6 +75,16 @@ public class Configuration {
 	}
 	public Set<String> getHosts() {
 		return this.hosts;
+	}
+	
+	public void addWriteHost(String host) {
+		this.writeHosts.add(host);
+	}
+	public void addWriteHosts(Collection<String> hosts) {
+		this.writeHosts.addAll(hosts);
+	}
+	public Set<String> getWriteHosts() {
+		return this.writeHosts;
 	}
 	
 	public void setPort(int port) {

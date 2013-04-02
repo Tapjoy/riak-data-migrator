@@ -39,6 +39,9 @@ public class Main {
 		if (cmd.hasOption("delete")) {
 			++cmdCount;
 		}
+		if (cmd.hasOption("m")) {
+			++cmdCount;
+		}
 		
 		
 		if (cmdCount == 0) {
@@ -83,6 +86,10 @@ public class Main {
 			runDumper(config);
 		}
 		
+		if (cmd.hasOption("m")) {
+			runMirror(config);
+		}
+		
 	}
 	
 	public static Configuration handleCommandLine(CommandLine cmd) {
@@ -122,6 +129,20 @@ public class Main {
 		}
 		if (config.getHosts().size() == 0) {
 			System.out.println("No hosts specified");;
+			System.exit(1);
+		}
+		
+		// Write Cluster hosts filename
+		if (cmd.hasOption("wc")) {
+			try {
+				config.addWriteHosts(Utilities.readFileLines(cmd.getOptionValue("wc")));
+			} catch (Exception e) {
+				System.out.println("Could not read file containing write hosts." + e.getMessage());
+				System.exit(1);
+			}
+		}
+		if (config.getWriteHosts().size() == 0) {
+			System.out.println("No write hosts specified");;
 			System.exit(1);
 		}
 		
@@ -352,6 +373,41 @@ public class Main {
 		printSummary(dumper.summary, "Dump Summary:");
 	}
 	
+	public static void runMirror(Configuration config) {
+		Connection readConnection = new Connection(config.getMaxRiakConnections());
+		Connection writeConnection = new Connection(config.getMaxRiakConnections());
+		
+		if (config.getHosts().size() == 1) {
+			String host = config.getHosts().toArray(new String[1])[0];
+			readConnection.connectPBClient(host, config.getPort());
+		} else {
+			readConnection.connectPBCluster(config.getHosts(), config.getPort());
+		}
+		
+		if (config.getWriteHosts().size() == 1) {
+			String host = config.getWriteHosts().toArray(new String[1])[0];
+			writeConnection.connectPBClient(host, config.getPort());
+		} else {
+			writeConnection.connectPBCluster(config.getWriteHosts(), config.getPort());
+		}
+		
+		if (!readConnection.testConnection()) {
+			System.out.println(String.format("Could not connect to read Riak on PB port %d", config.getPort()));
+			System.exit(-1);
+		}
+		if (!writeConnection.testConnection()) {
+			System.out.println(String.format("Could not connect to write Riak on PB port %d", config.getPort()));
+			System.exit(-1);
+		}
+		
+		BucketMirror mirror = new BucketMirror(readConnection, writeConnection, config.getFilePath(), 
+				config.getVerboseStatus(), config.getRiakWorkerCount());
+		long count = mirror.mirrorBuckets(config.getBucketNames());
+		
+		readConnection.close();
+		writeConnection.close();
+	}
+
 	public static void printHelp(String arg) {
 		Options options = createOptions();
 		HelpFormatter formatter = new HelpFormatter();
