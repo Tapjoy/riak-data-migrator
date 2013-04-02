@@ -474,6 +474,7 @@ public class Main {
 		options.addOption("f", true, "Load or Dump a file containing bucket names");
 		options.addOption("h", true, "Specify Riak Host");
 		options.addOption("c", true, "Specify a file containing Riak Cluster Host Names");
+		options.addOption("wc", true, "Specify a file containing Riak Cluster Host Names for mirroring");
 		options.addOption("p", true, "Specify Riak PB Port");
 		options.addOption("H", true, "Specify Riak HTTP Port");
 		options.addOption("v", false, "Output verbose status output to the command line");
