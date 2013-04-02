@@ -45,7 +45,7 @@ public class Main {
 		
 		
 		if (cmdCount == 0) {
-			System.out.println("You must specify l, d, k, or delete");
+			System.out.println("You must specify l, d, k, m, or delete");
 			System.exit(1);
 		}
 		if (cmdCount > 1) {
@@ -466,6 +466,7 @@ public class Main {
 		
 		options.addOption("l", false, "Set to Load buckets. Cannot be used with d, k");
 		options.addOption("d", false, "Set to Dump buckets. Cannot be used with l, k");
+		options.addOption("m", false, "Set to migrate with keys from disk. Cannot be used with l, d, k");
 		options.addOption("R", false, "Configure tool to resume previous operation");
 		options.addOption("r", true, "Set the path for data to be loaded to or dumped from. Required.");
 		options.addOption("a", false, "Load or Dump all buckets");
