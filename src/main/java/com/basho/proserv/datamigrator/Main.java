@@ -374,38 +374,35 @@ public class Main {
 	}
 	
 	public static void runMirror(Configuration config) {
-		Connection readConnection = new Connection(config.getMaxRiakConnections());
-		Connection writeConnection = new Connection(config.getMaxRiakConnections());
-		
-		if (config.getHosts().size() == 1) {
-			String host = config.getHosts().toArray(new String[1])[0];
-			readConnection.connectPBClient(host, config.getPort());
-		} else {
-			readConnection.connectPBCluster(config.getHosts(), config.getPort());
+		Connection readConnections[] = new Connection[config.getRiakWorkerCount()];
+		Connection writeConnections[] = new Connection[config.getRiakWorkerCount()];
+
+		String readHosts[] = config.getHosts().toArray(new String[0]);
+		String writeHosts[] = config.getWriteHosts().toArray(new String[0]);
+		for (int i=0; i < config.getRiakWorkerCount(); i++) {
+			readConnections[i] = new Connection(1);
+			writeConnections[i] = new Connection(1);
+			readConnections[i].connectPBClient(readHosts[i%readHosts.length], config.getPort());
+			writeConnections[i].connectPBClient(writeHosts[i%writeHosts.length], config.getPort());
 		}
 		
-		if (config.getWriteHosts().size() == 1) {
-			String host = config.getWriteHosts().toArray(new String[1])[0];
-			writeConnection.connectPBClient(host, config.getPort());
-		} else {
-			writeConnection.connectPBCluster(config.getWriteHosts(), config.getPort());
-		}
-		
-		if (!readConnection.testConnection()) {
+		if (!readConnections[0].testConnection()) {
 			System.out.println(String.format("Could not connect to read Riak on PB port %d", config.getPort()));
 			System.exit(-1);
 		}
-		if (!writeConnection.testConnection()) {
+		if (!writeConnections[0].testConnection()) {
 			System.out.println(String.format("Could not connect to write Riak on PB port %d", config.getPort()));
 			System.exit(-1);
 		}
 		
-		BucketMirror mirror = new BucketMirror(readConnection, writeConnection, config.getFilePath(), 
+		BucketMirror mirror = new BucketMirror(readConnections, writeConnections, config.getFilePath(), 
 				config.getVerboseStatus(), config.getRiakWorkerCount());
 		long count = mirror.mirrorBuckets(config.getBucketNames());
 		
-		readConnection.close();
-		writeConnection.close();
+		for (int i=0; i < config.getRiakWorkerCount(); i++) {
+			readConnections[i].close();
+			writeConnections[i].close();
+		}
 	}
 
 	public static void printHelp(String arg) {

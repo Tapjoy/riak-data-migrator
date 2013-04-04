@@ -126,12 +126,14 @@ public class BucketDumper {
 		
 		long keyCount = 0;
 		
-		try {
-			keyCount = this.dumpBucketKeys(bucketName, keyPath);
-		} catch (IOException e){
-			log.error("Error listing keys for bucket " + bucketName, e);
-			this.summary.addStatistic(bucketName, -2l, 0l);
-			return 0;
+		if (!keyPath.exists()) {
+			try {
+				keyCount = this.dumpBucketKeys(bucketName, keyPath);
+			}	catch (IOException e){
+				log.error("Error listing keys for bucket " + bucketName, e);
+				this.summary.addStatistic(bucketName, -2l, 0l);
+				return 0;
+			}
 		}
 		
 		if (keysOnly) {

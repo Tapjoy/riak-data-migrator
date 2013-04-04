@@ -16,8 +16,8 @@ import com.basho.proserv.datamigrator.riak.ThreadedMirror;
 public class BucketMirror {
 	private final Logger log = LoggerFactory.getLogger(BucketMirror.class);
 	public final Summary summary = new Summary();
-	private final Connection readConnection;
-	private final Connection writeConnection;
+	private final Connection readConnections[];
+	private final Connection writeConnections[];
 	private final File dataRoot;
 	private final boolean verboseStatusOutput;
 	private final int riakWorkerCount;
@@ -26,11 +26,11 @@ public class BucketMirror {
 	private long timerStart = System.currentTimeMillis();
 	private long previousCount = 0;
 	
-	public BucketMirror(Connection readConnection, Connection writeConnection, File dataRoot, 
+	public BucketMirror(Connection readConnections[], Connection writeConnections[], File dataRoot, 
 			boolean verboseStatusOutput, int riakWorkerCount) {
 		
-		this.readConnection = readConnection;
-		this.writeConnection = writeConnection;
+		this.readConnections = readConnections;
+		this.writeConnections = writeConnections;
 		this.dataRoot = dataRoot;
 		this.verboseStatusOutput = verboseStatusOutput;
 		this.riakWorkerCount = riakWorkerCount;
@@ -51,12 +51,12 @@ public class BucketMirror {
 
 		long start = System.currentTimeMillis();
 		
-		if (!this.readConnection.connected()) {
+		if (!this.readConnections[0].connected()) {
 			log.error("Not read connected to Riak");
 			return 0;
 		}
 		
-		if (!this.writeConnection.connected()) {
+		if (!this.writeConnections[0].connected()) {
 			log.error("Not write connected to Riak");
 			return 0;
 		}
@@ -79,7 +79,7 @@ public class BucketMirror {
 		SyncedKeyJournal keys = new SyncedKeyJournal(bucketKeys);
 
 		// Spin up X threads to read from old then write to new
-		ThreadedMirror mirroror = new ThreadedMirror(readConnection, writeConnection, keys, this.riakWorkerCount);
+		ThreadedMirror mirroror = new ThreadedMirror(readConnections, writeConnections, keys, this.riakWorkerCount);
 		try {
 			while (!keys.finished()) {
 				Thread.sleep(500);

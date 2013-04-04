@@ -23,22 +23,20 @@ import com.google.protobuf.ByteString;
 
 public class ThreadedMirror {
 	private final Logger log = LoggerFactory.getLogger(ThreadedMirror.class);
-	private final Connection readConnection;
-	private final Connection writeConnection;
+	private final Connection readConnections[];
+	private final Connection writeConnections[];
 	private final SyncedKeyJournal keys;
-
-	
-	private final NamedThreadFactory threadFactory = new NamedThreadFactory();
-	private final ExecutorService executor = Executors.newCachedThreadPool(threadFactory);
 	private final int workerCount;
 
+	private final NamedThreadFactory threadFactory = new NamedThreadFactory();
+	private final ExecutorService executor = Executors.newCachedThreadPool(threadFactory);
 	private final List<Future<Runnable>> threads = new ArrayList<Future<Runnable>>();
+
+	private static final int MAX_TRIES = 3;
 	
-	private int stoppedCount = 0;
-	
-	public ThreadedMirror(Connection readConnection, Connection writeConnection, SyncedKeyJournal keys, int workerCount) {
-		this.readConnection = readConnection;
-		this.writeConnection = writeConnection;
+	public ThreadedMirror(Connection readConnections[], Connection writeConnections[], SyncedKeyJournal keys, int workerCount) {
+		this.readConnections = readConnections;
+		this.writeConnections = writeConnections;
 		this.keys = keys;
 		this.workerCount = workerCount;
 		
@@ -60,8 +58,8 @@ public class ThreadedMirror {
 	private void run() {
 		for (Integer i = 0; i < this.workerCount; ++i) {
 			this.threadFactory.setNextThreadName(String.format("MirrorThread-%d", i));
-			this.threads.add((Future<Runnable>) executor.submit(new MirrorThread(this.readConnection,
-					new MirrorWriter(this.writeConnection), this.keys)));
+			this.threads.add((Future<Runnable>) executor.submit(new MirrorThread(this.readConnections[i],
+					new MirrorWriter(this.writeConnections[i]), this.keys)));
 		}
 	}
 	
@@ -82,27 +80,51 @@ public class ThreadedMirror {
 				while (!Thread.interrupted()) {
 					Key key = this.keys.read();
 					if (key == null) {
-						log.info("Nothing left to read, shutting down thread "+ Thread.currentThread().getName());
+						log.error("Nothing left to read, shutting down thread "+ Thread.currentThread().getName());
 						break;
 					}
 
+					//System.out.println("we got here, b="+ key.bucket() +", k="+ key.key() +", tid="+ Thread.currentThread().getName());
 					try {
-						// MORE WORK HERE
-						// This exchange has not been flushed out. vclock? Prob ok since only create if not match.
-						RiakResponse resp = this.readConnection.riakClient.fetch(key.bucket(), key.key());
-						IRiakObject[] objects = resp.getRiakObjects();
+						IRiakObject[] objects = readObject(key);
+
 						if (objects.length > 0) {
-						  this.writer.storeRiakObject(objects[0]);
+						  storeObject(objects[0]);
 						} else {
-							log.error("Failed to find object, b="+ key.bucket() +", k="+ key.key());
+							log.error("FTFO="+ key.bucket() +","+ key.key());
 						}
 					} catch (Exception exc) {
-						log.error("Failed to write, b="+ key.bucket() +", k="+ key.key() +", msg="+ exc.getMessage());
+						exc.printStackTrace(System.out);
+						log.error("FTWO="+ key.bucket() +","+ key.key());
 					}
 				}
 			} catch (Exception e) {
 				log.info("Interrupted, shutting down thread "+ Thread.currentThread().getName());
 				//no-op
+			}
+		}
+
+		private IRiakObject[] readObject(Key key) {
+			IRiakObject[] objects = null;
+			for (int i=0; objects == null && i < MAX_TRIES; i++) {
+				try {
+					RiakResponse resp = this.readConnection.riakClient.fetch(key.bucket(), key.key());
+					objects = resp.getRiakObjects();
+				} catch (Exception e) {
+					// ignore..probably connection broked, allow it to reconnect
+				}
+			}
+			return objects;
+		}
+
+		private void storeObject(IRiakObject object) {
+			for (int i=0; i < MAX_TRIES; i++) {
+				try {
+					 this.writer.storeRiakObject(object);
+					 return;
+				} catch (Exception e) {
+					// ignore..probably connection broked, allow it to reconnect
+				}
 			}
 		}
 	}
