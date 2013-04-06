@@ -18,6 +18,7 @@ import com.basho.proserv.datamigrator.util.NamedThreadFactory;
 import com.basho.riak.client.IRiakObject;
 import com.basho.riak.client.raw.RiakResponse;
 import com.basho.riak.client.raw.pbc.ConversionUtilWrapper;
+import com.basho.riak.client.raw.pbc.PBClientAdapter;
 import com.basho.riak.pbc.RiakObject;
 import com.google.protobuf.ByteString;
 
@@ -26,7 +27,10 @@ public class ThreadedMirror {
 	private final Connection readConnections[];
 	private final Connection writeConnections[];
 	private final SyncedKeyJournal keys;
+	private final SyncedKeyJournal failedKeys;
 	private final int workerCount;
+	private int finishedWorkers;
+	private int processedCount;
 
 	private final NamedThreadFactory threadFactory = new NamedThreadFactory();
 	private final ExecutorService executor = Executors.newCachedThreadPool(threadFactory);
@@ -34,17 +38,34 @@ public class ThreadedMirror {
 
 	private static final int MAX_TRIES = 3;
 	
-	public ThreadedMirror(Connection readConnections[], Connection writeConnections[], SyncedKeyJournal keys, int workerCount) {
+	public ThreadedMirror(Connection readConnections[], Connection writeConnections[],
+				SyncedKeyJournal keys, SyncedKeyJournal failedKeys, int workerCount) {
 		this.readConnections = readConnections;
 		this.writeConnections = writeConnections;
 		this.keys = keys;
+		this.failedKeys = failedKeys;
 		this.workerCount = workerCount;
+		this.finishedWorkers = 0;
+		this.processedCount = 0;
 		
 		this.run();
 	}
 	
+	public synchronized boolean finished() {
+		return this.finishedWorkers == this.workerCount;
+	}
+
+	public synchronized int numberProcessed() {
+		return this.processedCount;
+	}
+
 	public void close() {
 		this.executor.shutdown();
+	}
+
+	private synchronized void workerFinished(int processedCount) {
+		this.finishedWorkers++;
+		this.processedCount += processedCount;
 	}
 
 	private void interruptWorkers() {
@@ -58,59 +79,72 @@ public class ThreadedMirror {
 	private void run() {
 		for (Integer i = 0; i < this.workerCount; ++i) {
 			this.threadFactory.setNextThreadName(String.format("MirrorThread-%d", i));
-			this.threads.add((Future<Runnable>) executor.submit(new MirrorThread(this.readConnections[i],
-					new MirrorWriter(this.writeConnections[i]), this.keys)));
+			this.threads.add((Future<Runnable>) executor.submit(new MirrorThread(this, this.readConnections[i],
+					new MirrorWriter(this.writeConnections[i]), this.keys, this.failedKeys)));
 		}
 	}
 	
 	private class MirrorThread implements Runnable {
+		private final ThreadedMirror threadedMirror;
 		private final Connection readConnection;
 		private final IClientWriter writer;
 		private final SyncedKeyJournal keys;
+		private final SyncedKeyJournal failedKeys;
 		
-		public MirrorThread(Connection readConnection, IClientWriter writer, SyncedKeyJournal keys) {
+		public MirrorThread(ThreadedMirror threadedMirror, Connection readConnection,
+					IClientWriter writer, SyncedKeyJournal keys, SyncedKeyJournal failedKeys) {
+			this.threadedMirror = threadedMirror;
 			this.readConnection = readConnection;
 			this.writer = writer;
 			this.keys = keys;
+			this.failedKeys = failedKeys;
 		}
 
 		@Override
 		public void run() {
+			int processedCount = 0;
 			try {
 				while (!Thread.interrupted()) {
-					Key key = this.keys.read();
+					ByteString key = this.keys.read();
 					if (key == null) {
-						log.error("Nothing left to read, shutting down thread "+ Thread.currentThread().getName());
+						log.error("Nothing left to read, shutting down thread");
 						break;
 					}
 
-					//System.out.println("we got here, b="+ key.bucket() +", k="+ key.key() +", tid="+ Thread.currentThread().getName());
-					try {
-						IRiakObject[] objects = readObject(key);
+					processedCount++;
 
-						if (objects.length > 0) {
+					//System.out.println("we got here, b="+ key.bucket() +", k="+ key.key());
+					try {
+						IRiakObject[] objects = readObject(keys.getBucketName(), key);
+
+						if (objects != null && objects.length > 0) {
 						  storeObject(objects[0]);
 						} else {
-							log.error("FTFO="+ key.bucket() +","+ key.key());
+							failedKeys.write(key);
+							logKey("FTFO", key);
 						}
 					} catch (Exception exc) {
 						exc.printStackTrace(System.out);
-						log.error("FTWO="+ key.bucket() +","+ key.key());
+						failedKeys.write(key);
+						logKey("FTWO", key);
 					}
 				}
 			} catch (Exception e) {
-				log.info("Interrupted, shutting down thread "+ Thread.currentThread().getName());
+				log.info("Interrupted, shutting down thread ");
 				//no-op
+			} finally {
+				threadedMirror.workerFinished(processedCount);
 			}
 		}
 
-		private IRiakObject[] readObject(Key key) {
+		private IRiakObject[] readObject(ByteString bucketName, ByteString key) {
 			IRiakObject[] objects = null;
 			for (int i=0; objects == null && i < MAX_TRIES; i++) {
 				try {
-					RiakResponse resp = this.readConnection.riakClient.fetch(key.bucket(), key.key());
+					RiakResponse resp = ((PBClientAdapter)this.readConnection.riakClient).fetch(bucketName, key);
 					objects = resp.getRiakObjects();
 				} catch (Exception e) {
+					//e.printStackTrace();
 					// ignore..probably connection broked, allow it to reconnect
 				}
 			}
@@ -125,6 +159,14 @@ public class ThreadedMirror {
 				} catch (Exception e) {
 					// ignore..probably connection broked, allow it to reconnect
 				}
+			}
+		}
+
+		private void logKey(String txt, ByteString key) {
+			try {
+				log.error(txt + key.toString());
+			} catch (Exception exc) {
+				log.error("FTWO="+ exc.getMessage());
 			}
 		}
 	}

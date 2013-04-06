@@ -38,6 +38,7 @@ public class Configuration {
 	
 	private int riakWorkerCount = Runtime.getRuntime().availableProcessors() * RIAK_WORKER_MULTIPLIER;
 	private int maxRiakConnections = riakWorkerCount * RIAK_CLUSTER_CONNECTION_MULTIPLIER;
+	private int chunkSize = 0;
 	
 	public void setMode(Mode mode) {
 		this.mode = mode;
@@ -138,5 +139,12 @@ public class Configuration {
 	}
 	public int getMaxRiakConnections() {
 		return this.maxRiakConnections;
+	}
+
+	public void setChunkSize(int chunkSize) {
+		this.chunkSize = chunkSize;
+	}
+	public int getChunkSize() {
+		return this.chunkSize;
 	}
 }

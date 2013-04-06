@@ -1,25 +1,27 @@
 package com.basho.proserv.datamigrator.io;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.Iterator;
 
 import com.basho.riak.client.IRiakObject;
 import com.basho.riak.pbc.RiakObject;
 
+import com.google.protobuf.ByteString;
+
 public class KeyJournal implements Iterable<Key> {
 	public enum Mode { READ, WRITE }
 	
 	private final Mode mode;
-	private final BufferedWriter writer;
-	private final BufferedReader reader;
+	private final BufferedOutputStream writer;
+	private final BufferedInputStream reader;
 	private boolean closed = false;
 	
 	public KeyJournal(File path, Mode mode) {
@@ -28,16 +30,28 @@ public class KeyJournal implements Iterable<Key> {
 		}
 		try {
 			if (mode == Mode.WRITE) {
-				this.writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(path)));
+				this.writer = new BufferedOutputStream(new DataOutputStream(new FileOutputStream(path)));
 				this.reader = null;
 			} else {
-				this.reader = new BufferedReader(new InputStreamReader(new FileInputStream(path)));
+				this.reader = new BufferedInputStream(new DataInputStream(new FileInputStream(path)));
 				this.writer = null;
 			}
 		} catch (FileNotFoundException e) {
 			throw new IllegalArgumentException("Could not open " + path.getAbsolutePath());
 		}
 		this.mode = mode;
+	}
+	
+	public void writeByteString(ByteString key) throws IOException {
+		if (mode == Mode.READ) {
+			throw new IllegalArgumentException ("KeyJournal is in READ mode for write operation");
+		}
+		if (key == null) {
+			throw new IllegalArgumentException("key must not be null");
+		}
+		byte keyBytes[] = key.toByteArray();
+		this.writer.write(keyBytes.length);
+		this.writer.write(keyBytes, 0, keyBytes.length);
 	}
 	
 	public void write(String bucket, String key) throws IOException {
@@ -47,7 +61,7 @@ public class KeyJournal implements Iterable<Key> {
 		if (bucket == null || key == null) {
 			throw new IllegalArgumentException("bucket and key must not be null");
 		}
-		this.writer.write((bucket + "," + key + "\n"));
+		//this.writer.write((bucket + "," + key + "\n"));
 	}
 	
 	public void write(RiakObject riakObject) throws IOException {
@@ -58,11 +72,22 @@ public class KeyJournal implements Iterable<Key> {
 		this.write(riakObject.getBucket(), riakObject.getKey());
 	}
 	
+	public ByteString readByteString() throws IOException {
+		int len = this.reader.read();
+		if (len == -1) { // EOF
+			return null;
+		}
+		byte[] key = new byte[len];
+		this.reader.read(key, 0, len);
+		return(ByteString.copyFrom(key));
+	}
+
 	public Key read() throws IOException {
 		if (mode == Mode.WRITE) {
 			throw new IllegalArgumentException("KeyJournal is in WRITE mode for read operation");
 		}
-		String line = this.reader.readLine();
+		//String line = this.reader.readLine();
+		String line = null;
 		if (line == null) {
 			return null;
 		}
@@ -153,6 +178,5 @@ public class KeyJournal implements Iterable<Key> {
 		}
 		
 	}
-	
 	
 }

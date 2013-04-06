@@ -86,7 +86,9 @@ public class Main {
 			runDumper(config);
 		}
 		
-		if (cmd.hasOption("m")) {
+		if (cmd.hasOption("m") && cmd.hasOption("chunksize")) {
+			splitKeys(config);
+		} else if (cmd.hasOption("m")) {
 			runMirror(config);
 		}
 		
@@ -140,10 +142,11 @@ public class Main {
 				System.out.println("Could not read file containing write hosts." + e.getMessage());
 				System.exit(1);
 			}
-		}
-		if (config.getWriteHosts().size() == 0) {
-			System.out.println("No write hosts specified");;
-			System.exit(1);
+
+			if (config.getWriteHosts().size() == 0) {
+				System.out.println("No write hosts specified");;
+				System.exit(1);
+			}
 		}
 		
 		// PB port
@@ -241,6 +244,15 @@ public class Main {
 				config.setMaxRiakConnectionsCount(Integer.parseInt(cmd.getOptionValue("maxriakconnections")));
 			} catch (Exception e) {
 				System.out.println("Invalid value specified for maxriakconnections");
+				System.exit(1);
+			}
+		}
+		
+		if (cmd.hasOption("chunksize")) {
+			try {
+				config.setChunkSize(Integer.parseInt(cmd.getOptionValue("chunksize")));
+			} catch (Exception e) {
+				System.out.println("Invalid value specified for chunksize");
 				System.exit(1);
 			}
 		}
@@ -373,6 +385,12 @@ public class Main {
 		printSummary(dumper.summary, "Dump Summary:");
 	}
 	
+	public static void splitKeys(Configuration config) {
+		BucketMirror mirror = new BucketMirror(null, null, config.getFilePath(), 
+				config.getVerboseStatus(), config.getRiakWorkerCount());
+		mirror.splitKeys(config.getBucketNames(), config.getChunkSize());
+	}
+
 	public static void runMirror(Configuration config) {
 		Connection readConnections[] = new Connection[config.getRiakWorkerCount()];
 		Connection writeConnections[] = new Connection[config.getRiakWorkerCount()];
@@ -384,15 +402,15 @@ public class Main {
 			writeConnections[i] = new Connection(1);
 			readConnections[i].connectPBClient(readHosts[i%readHosts.length], config.getPort());
 			writeConnections[i].connectPBClient(writeHosts[i%writeHosts.length], config.getPort());
-		}
 		
-		if (!readConnections[0].testConnection()) {
-			System.out.println(String.format("Could not connect to read Riak on PB port %d", config.getPort()));
-			System.exit(-1);
-		}
-		if (!writeConnections[0].testConnection()) {
-			System.out.println(String.format("Could not connect to write Riak on PB port %d", config.getPort()));
-			System.exit(-1);
+			if (!readConnections[i].testConnection()) {
+				System.out.println(String.format("Could not connect to read Riak["+ i +"] on PB port %d", config.getPort()));
+				System.exit(-1);
+			}
+			if (!writeConnections[i].testConnection()) {
+				System.out.println(String.format("Could not connect to write Riak["+ i +"] on PB port %d", config.getPort()));
+				System.exit(-1);
+			}
 		}
 		
 		BucketMirror mirror = new BucketMirror(readConnections, writeConnections, config.getFilePath(), 
@@ -481,6 +499,7 @@ public class Main {
 		options.addOption("resetvclock", false, "Resets object's VClock prior to being loaded in Riak");
 		options.addOption("riakworkercount", true, "Specify Riak Worker Count");
 		options.addOption("maxriakconnections", true, "Specify the max number of connections maintained in the Riak Connection Pool");
+		options.addOption("chunksize", true, "Specify chunk size for splitting keyfile");
 		options.addOption("delete", false, "Delete specified buckets");
 		return options;
 	}

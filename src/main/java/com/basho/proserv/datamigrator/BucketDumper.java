@@ -2,6 +2,7 @@ package com.basho.proserv.datamigrator;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.Set;
 
 import org.slf4j.Logger;
@@ -16,6 +17,9 @@ import com.basho.proserv.datamigrator.riak.RiakBucketProperties;
 import com.basho.proserv.datamigrator.riak.ThreadedClientDataReader;
 import com.basho.riak.client.IRiakObject;
 import com.basho.riak.client.bucket.BucketProperties;
+import com.basho.riak.client.raw.pbc.PBClientAdapter;
+
+import com.google.protobuf.ByteString;
 
 // BucketDumper will only work with clients returning protobuffer objects, ie PBClient
 public class BucketDumper {
@@ -197,9 +201,10 @@ public class BucketDumper {
 	public long dumpBucketKeys(String bucketName, File filePath) throws IOException {
 		KeyJournal keyJournal = new KeyJournal(filePath, KeyJournal.Mode.WRITE);
 		long keyCount = 0;
-		Iterable<String> keys = this.connection.riakClient.listKeys(bucketName);
-		for (String keyString : keys) {
-			keyJournal.write(bucketName, keyString);
+		Iterator<ByteString> keys = ((PBClientAdapter)this.connection.riakClient).listKeysRaw(bucketName);
+		while (keys.hasNext()) {
+		  ByteString keyString = keys.next();
+			keyJournal.writeByteString(keyString);
 			++keyCount;
 		}
 		keyJournal.close();
